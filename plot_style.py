@@ -24,6 +24,7 @@ def apply_style():
         "xtick.labelsize": 7.5,
         "ytick.labelsize": 7.5,
         "legend.fontsize": 7.5,
+        "legend.frameon": False,
         "axes.linewidth": 0.8,
         "xtick.direction": "in",
         "ytick.direction": "in",
@@ -36,4 +37,10 @@ def apply_style():
         "figure.dpi": 300,
         "savefig.dpi": 300,
         "savefig.bbox": "tight",
+        "savefig.pad_inches": 0.04,
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
+        "svg.fonttype": "none",
+        "figure.facecolor": "white",
+        "axes.facecolor": "white",
     })

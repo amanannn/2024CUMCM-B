@@ -14,6 +14,7 @@ SPRT 设定：H0: p=p0=0.10 vs H1: p=p1=0.20（次品率翻倍的备择点）
 """
 import os
 import sys
+import argparse
 
 import numpy as np
 import pandas as pd
@@ -31,6 +32,91 @@ ALPHA, BETA = 0.05, 0.10
 A = np.log((1 - BETA) / ALPHA)        # 拒收界
 B = np.log(BETA / (1 - ALPHA))        # 接收界
 N_MAX = 200                            # 截尾上限
+
+
+def performance_grid(p_grid, n_reps=12_000, seed=2024):
+    """Vectorized Monte Carlo estimates used only for the smooth figure curves."""
+    rng = np.random.default_rng(seed)
+    p_accept, mean_n = [], []
+    good_step = np.log((1 - P1) / (1 - P0))
+    bad_step = np.log(P1 / P0)
+    for p in p_grid:
+        draws = rng.random((n_reps, N_MAX)) < p
+        paths = np.cumsum(np.where(draws, bad_step, good_step), axis=1)
+        stopped = (paths >= A) | (paths <= B)
+        has_stopped = stopped.any(axis=1)
+        stop_idx = stopped.argmax(axis=1)
+        stop_idx[~has_stopped] = N_MAX - 1
+        terminal = paths[np.arange(n_reps), stop_idx]
+        rejected = terminal >= 0
+        p_accept.append(1 - rejected.mean())
+        mean_n.append((stop_idx + 1).mean())
+    return np.asarray(p_accept), np.asarray(mean_n)
+
+
+def plot_sprt():
+    """Draw a compact two-panel comparison for manuscript use."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import MultipleLocator, PercentFormatter
+
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from plot_style import OKABE_ITO, apply_style
+    apply_style()
+
+    blue, orange, green = OKABE_ITO[:3]
+    ink, muted, grid = "#253238", "#6B7479", "#D9DEE1"
+    p_grid = np.linspace(0.02, 0.50, 97)
+    sprt_accept, sprt_asn = performance_grid(p_grid)
+
+    fig, axes = plt.subplots(1, 2, figsize=(7.2, 3.35))
+    ax = axes[0]
+    ax.plot(p_grid, (1 - p_grid) ** 29, color=blue, ls=(0, (4, 2)), lw=1.35,
+            label=r"固定方案  $n=29$")
+    ax.plot(p_grid, (1 - p_grid) ** 22, color=orange, ls=(0, (2, 2)), lw=1.35,
+            label=r"固定方案  $n=22$")
+    ax.plot(p_grid, sprt_accept, color=green, lw=1.8, label="SPRT")
+    ax.axvline(P0, color=muted, ls=(0, (2, 2)), lw=0.8)
+    ax.axvline(P1, color=muted, ls=(0, (2, 2)), lw=0.8)
+    ax.set(xlim=(0.02, 0.50), ylim=(0, 1.01), xlabel=r"真实次品率  $p$", ylabel="接收概率")
+    ax.xaxis.set_major_locator(MultipleLocator(0.1))
+    ax.yaxis.set_major_locator(MultipleLocator(0.2))
+    ax.yaxis.set_major_formatter(PercentFormatter(1.0))
+    ax.legend(loc="upper right", frameon=False, handlelength=2.6)
+    ax.text(-0.14, 1.02, "a", transform=ax.transAxes, weight="bold", fontsize=9)
+
+    ax = axes[1]
+    ax.plot(p_grid, sprt_asn, color=green, lw=1.8, label="SPRT")
+    ax.axhline(29, color=blue, ls=(0, (4, 2)), lw=1.15, label=r"固定方案  $n=29$")
+    ax.axhline(22, color=orange, ls=(0, (2, 2)), lw=1.15, label=r"固定方案  $n=22$")
+    ax.axvline(P0, color=muted, ls=(0, (2, 2)), lw=0.8)
+    ax.axvline(P1, color=muted, ls=(0, (2, 2)), lw=0.8)
+    ax.text(P0, 9.0, r"$p_0$", color=muted, ha="center", fontsize=7.5)
+    ax.text(P1, 9.0, r"$p_1$", color=muted, ha="center", fontsize=7.5)
+    peak = int(np.argmax(sprt_asn))
+    ax.annotate(
+        f"峰值约 {sprt_asn[peak]:.0f} 次", xy=(p_grid[peak], sprt_asn[peak]),
+        xytext=(0.125, 85), color=green, ha="right", va="center", fontsize=7.3,
+        arrowprops={"arrowstyle": "-", "color": green, "lw": 0.8},
+    )
+    ax.set(xlim=(0.02, 0.50), ylim=(8, 88), xlabel=r"真实次品率  $p$", ylabel=r"期望检测次数  $E[N\mid p]$")
+    ax.xaxis.set_major_locator(MultipleLocator(0.1))
+    ax.yaxis.set_major_locator(MultipleLocator(20))
+    ax.legend(loc="upper right", frameon=False, handlelength=2.6)
+    ax.text(-0.14, 1.02, "b", transform=ax.transAxes, weight="bold", fontsize=9)
+
+    for ax in axes:
+        ax.set_axisbelow(True)
+        ax.grid(axis="y", color=grid, lw=0.5)
+        ax.spines["left"].set_color(ink)
+        ax.spines["bottom"].set_color(ink)
+        ax.tick_params(colors=ink)
+
+    fig.subplots_adjust(left=0.09, right=0.99, bottom=0.17, top=0.98, wspace=0.31)
+    fig.savefig(os.path.join(FIG, "fig4_sprt.png"), dpi=400, facecolor="white")
+    fig.savefig(os.path.join(FIG, "fig4_sprt.pdf"), facecolor="white")
+    plt.close(fig)
 
 
 def sprt_simulate(p_true, rng, n_max=N_MAX):
@@ -120,63 +206,12 @@ def main():
     for _, r in df_sim.iterrows():
         print(f"  真实次品率 p={r['p']:.2f}: 期望检测 {r['平均检测次数']} 次, 拒收率 {r['模拟拒收率']:.1%}")
 
-    # ---- 画图：OC 曲线与 ASN 对比 ----
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import sys as _sys
-    _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from plot_style import apply_style
-    apply_style()
-
-    p_grid = np.linspace(0.02, 0.50, 97)
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4.8))
-
-    # 左：OC 曲线（接受概率 vs p）——SPRT vs 固定 n=29 / n=22
-    ax = axes[0]
-    for n, label, color in [(29, "固定 n=29（≥1件次品拒收）", "#C44E52"),
-                            (22, "固定 n=22（0件次品接收）", "#4C72B0")]:
-        ax.plot(p_grid, (1 - p_grid) ** n, "--", lw=2, color=color, label=label)
-    # SPRT OC（模拟）
-    sim_oc = []
-    for p in p_grid:
-        n_reps = 30_000
-        results = np.array([sprt_simulate(p, rng) for _ in range(n_reps)])
-        sim_oc.append(results[:, 0].mean() if False else 1 - results[:, 0].mean())
-    ax.plot(p_grid, sim_oc, "-", lw=2.2, color="#55A868", label="SPRT（模拟）")
-    ax.axvline(P0, color="gray", ls=":", lw=1)
-    ax.axhline(0.1, color="gray", ls=":", lw=0.8)
-    ax.set_xlabel("真实次品率 p")
-    ax.set_ylabel("接收概率 P(接收|p)")
-    ax.set_title("OC 曲线：SPRT vs 固定样本量方案")
-    ax.legend(fontsize=8.5)
-    ax.grid(alpha=0.3)
-
-    # 右：SPRT 期望检测次数 vs p（模拟），标注固定样本量水平线
-    ax = axes[1]
-    asn_pts = []
-    for p in p_grid:
-        n_reps = 30_000
-        results = np.array([sprt_simulate(p, rng) for _ in range(n_reps)])
-        asn_pts.append(results[:, 1].mean())
-    ax.plot(p_grid, asn_pts, lw=2.2, color="#55A868")
-    ax.axhline(29, color="#C44E52", ls="--", lw=1.2, label="固定 n=29（拒收情形）")
-    ax.axhline(22, color="#4C72B0", ls="--", lw=1.2, label="固定 n=22（接收情形）")
-    ax.axvline(P0, color="gray", ls=":", lw=1)
-    ax.axvline(P1, color="gray", ls=":", lw=1)
-    ax.text(P0, 8, r"$p_0$=10%", color="gray", fontsize=9)
-    ax.text(P1, 8, r"$p_1$=20%", color="gray", fontsize=9)
-    ax.set_xlabel("真实次品率 p")
-    ax.set_ylabel("期望检测次数 E[n|p]")
-    ax.set_title("SPRT 期望检测次数（截尾上限 200）")
-    ax.legend(fontsize=8.5)
-    ax.grid(alpha=0.3)
-
-    fig.tight_layout()
-    fig.savefig(os.path.join(FIG, "fig4_sprt.png"), dpi=300)
-    plt.close(fig)
+    plot_sprt()
     print(f"\n[输出] {DATA}/p1_sprt.csv, {FIG}/fig4_sprt.png")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--plot-only", action="store_true", help="skip the summary simulation and redraw Figure 4")
+    args = parser.parse_args()
+    plot_sprt() if args.plot_only else main()
