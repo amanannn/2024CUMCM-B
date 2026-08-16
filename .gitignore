@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 临时文件
+_tmp_*
+*.tmp
+
+# IDE
+.vscode/
+.idea/
